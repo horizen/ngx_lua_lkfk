@@ -4,5 +4,7 @@ Example
 ==========
 
 local global = require "global"
+
 local lkfk = global.kfk
+
 lkfk:log(level, topic, key, playlod)
