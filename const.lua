@@ -32,6 +32,24 @@ local const = {
 	KFK_RSP_ERR_BAD_MSG = 15,
 	KFK_RSP_ERR_DESTROY = 16,
     KFK_RSP_ERR_BROKER_DOWN = 17,
-    KFK_NGINX_DOWN = 18
+    
+    KFK_BROKER_NOT_VALID = 18,
+    KFK_NGINX_DOWN = 19
 }
+local errstr = {}
+errstr[3] = "unknown topic or partition"
+errstr[5] = "leader not available"
+errstr[6] = "not leader for patition"
+errstr[7] = "request timed out"
+errstr[8] = "broker not available"
+errstr[9] = "replica not available"
+errstr[13] = "message timed out"
+errstr[14] = "socket error"
+errstr[15] = "bad msg"
+errstr[16] = "broker destroy"
+errstr[17] = "broker down"
+errstr[18] = "broker not valid"
+errstr[19] = "nginx down"
+
+const.errstr = errstr
 return const;
