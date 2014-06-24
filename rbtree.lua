@@ -23,12 +23,13 @@ local sentinel = {
 	color = _BLACK
 };
 
-local function _insert_node(tmp, node)
+local function _insert_node(cmp, tmp, node)
 	local p, tag;
 	
 	while tmp ~= sentinel do
 		p = tmp;
-		if node.key - tmp.key < 0  then
+		
+		if cmp(node.key, tmp.key) < 0 then
 			tag = "left";
 			tmp = tmp.left;
 		else
@@ -88,12 +89,6 @@ local function _rbtree_right_rotate(self, node)
 	node.parent = tmp;
 end
 
-local function _rbtree_min(tmp)
-	while tmp.left ~= sentinel do
-		tmp = tmp.left;
-	end
-	return tmp;
-end
 
 local mt = {__index = _M};
 
@@ -105,11 +100,18 @@ local mt = {__index = _M};
 function _M.new(cmp)
 	local rbtree = {
 		root = nil,
-		cnt = 0
+		cnt = 0,
+		cmp = cmp
 	}
 	setmetatable(rbtree, mt);
 end
 
+local function _rbtree_min(tmp)
+	while tmp.left ~= sentinel do
+		tmp = tmp.left;
+	end
+	return tmp;
+end
 
 function _M.rbtree_insert(self, node)
 	self.cnt = self.cnt + 1;
@@ -122,7 +124,7 @@ function _M.rbtree_insert(self, node)
 		return;
 	end
 	
-	_insert_node(self.root, node);
+	_insert_node(self.cmp, self.root, node);
 	
 	while node ~= self.root and node.parent.color == _RED do
 		local parent = node.parent;
