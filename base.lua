@@ -13,13 +13,12 @@ local lshift = bit.lshift
 local rshift = bit.rshift
 local tohex = bit.tohex
 
-local _M = util.new_tab(0, 20);
+local _M = util.new_tab(0, 19);
 
 function _M.get_byte2(data, i)
     local a, b = strbyte(data, i, i + 1)
     return bor(lshift(a, 8), b), i + 2
 end
-
 
 function _M.get_byte3(data, i)
     local a, b, c = strbyte(data, i, i + 2)
