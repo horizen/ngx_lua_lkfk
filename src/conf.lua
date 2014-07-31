@@ -1,37 +1,25 @@
+local crc32 = ngx.crc32_short
+local localtime = ngx.localtime
+
 local function default_partitioner(key, part_cnt)
-	return ngx.crc32_short(key) % part_cnt;
+	return crc32(key) % part_cnt;
 end
 
-
-local log = {
-	STDERR = 1,
-	EMERG = 2,
-	ALERT = 3,
-	CRIT = 4,
-	ERR = 5,
-	WARN = 6,
-	NOTICE = 7,
-	INFO = 8,
-	DEBUG = 9
-}
-
 local function kfk_failed_handle(kfk, msg)
-    return kfk.fp[msg.topic]:write(ngx.localtime(), "\t", msg.topic, 
+    return kfk.fp[msg.topic]:write(localtime(), "\t", msg.topic, 
                 "\t", msg.key, "\t", msg.str, "\n");
 end
 
 local default_conf = {
 	-- msg send failed callback，this is use for backup
 	failed_cb = kfk_failed_handle,
-	-- backup log file for failed msg
+	-- backup path for failed msg
 	backpath = "/usr/home/yaowei2/work/nginx/backup/",
 	
-	-- log level
-	log = log.INFO,
 	-- client id
 	client_id = "lkfk",
 	
-	-- metadata broker list
+	-- metadata broker list, recommend at least two node
 	metadata_broker_list = {"algo089.sf.sad.sh.sinanode.com:9996","algo090.sf.sad.sh.sinanode.com:9997"},
 
 	-- topic for kafka

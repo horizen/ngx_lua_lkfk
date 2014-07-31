@@ -4,6 +4,7 @@ local broker = require "lkfk.broker";
 local const = require "lkfk.const";
 local func = require "lkfk.func";
 
+local tonumber = tonumber;
 local concat = table.concat;
 local ipairs = ipairs;
 local ngxlog = ngx.log;
@@ -131,11 +132,6 @@ local function _gen_req(topics)
 	_kfk_req[1] = util.set_byte4(8 + strlen(_kfk_req[5]) + strlen(_kfk_req[6]));
 end
 
---[[
--- all_topic := if true: retreive all topics&partitions from the broker
---              if false: just retrieve the topics we know about.
--- kfk_topic := all_topic=false && topics is set: only ask for specified topic.
---]]
 
 local function kfk_metadata_req(kfk)
 	local metadata_broker_list = kfk.cf.metadata_broker_list;

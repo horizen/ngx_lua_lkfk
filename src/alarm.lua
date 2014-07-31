@@ -1,3 +1,9 @@
+local concat = table.concat
+local strlen = string.len
+local ipairs = ipairs
+local ngxlog = ngx.log
+local ERR = ngx.ERR
+
 local req = {
     "POST /yingeng/api/idle_alert.php HTTP/1.1\r\n",
     "Content-Length: ",
@@ -15,7 +21,7 @@ local _M = {};
 
 function _M.add(str)
     if #content > 50 then
-        ngx.log(ngx.ERR, "[kafka] too many alarm monitor pending to send");
+        ngxlog(ERR, "[kafka] too many alarm monitor pending to send");
         return;
     end
     for _, c in ipairs(content) do
@@ -27,8 +33,7 @@ function _M.add(str)
     alarm = true;
 end
 
-local concat = table.concat
-local strlen = string.len
+
 -- this function is not safe for mutithread, we need lock
 function _M.send(tcp)
     if not alarm then

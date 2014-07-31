@@ -119,7 +119,7 @@ local function _kfk_toppar_broker_delegate(kfk_toppar, kfk_broker)
 		kfk_toppar.leader = kfk_broker;
 
     	ngxlog(DEBUG, "[kafka] [", kfk_topic.name, ":", kfk_toppar.partition, 
-    		    	 "] move to broker ", kfk_broker.nodeid);
+    		    	  "] move to broker ", kfk_broker.nodeid);
 	end
 end
 

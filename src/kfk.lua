@@ -109,7 +109,7 @@ local function _loop(kfk)
         coyield(self);
         local t = ngxnow();
         if t - s < 2 then
-            ngx.sleep(2);
+            ngxsleep(2);
         end
 	end
 	

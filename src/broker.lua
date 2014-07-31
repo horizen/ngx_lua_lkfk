@@ -10,6 +10,7 @@ local concat = table.concat;
 local ipairs = ipairs;
 local pairs = pairs;
 local tonumber = tonumber;
+local tabrm = table.remove;
 
 local ngxnow = ngx.now;
 local ngxlog = ngx.log;
@@ -17,12 +18,12 @@ local ngxsleep = ngx.sleep;
 local ngxspawn = ngx.thread.spawn;
 local ngxcrc32 = ngx.crc32_long
 local ngxtcp = ngx.socket.tcp
+local ngxwait = ngx.thread.wait
+local corunning = coroutine.running
 local ERR = ngx.ERR
 local WARN = ngx.WARN
+local CRIT = ngx.CRIT
 local DEBUG = ngx.DEBUG
-
-local coyield = coroutine.yield
-local corunning = coroutine.running
 
 local strlen = string.len
 local strsub = string.sub
@@ -144,7 +145,7 @@ local function _kfk_broker_set_state(kfk_broker, state)
             --[[
             alarm.add("All kafka broker down");
             --]]
-			ngxlog(ngx.CRIT, "[kafka] all broker down");
+			ngxlog(CRIT, "[kafka] all broker down");
 		end
 	elseif kfk_broker.state == const.KFK_BROKER_DOWN then
 		kfk.down_cnt = kfk.down_cnt - 1;
@@ -295,7 +296,7 @@ local function kfk_broker_produce_fail(kfk_broker, err, detail)
 	    list.concat(tmpq, kfk_broker.outbuf);
 	end
 
-	head = tmpq.head;
+	local head = tmpq.head;
 	local kfk_buf = head[tmpq.key].next;
 	while kfk_buf ~= head do
 		kfk_buf.callback(kfk_broker, err, nil, kfk_buf);
@@ -312,8 +313,8 @@ local function kfk_broker_produce_fail(kfk_broker, err, detail)
 
         if err == const.KFK_BROKER_NOT_VALID then
             for i = 1, #kfk.cos do
-                if coroutine.running() == kfk.cos[i] then
-                    table.remove(kfk.cos, i);
+                if corunning() == kfk.cos[i] then
+                    tabrm(kfk.cos, i);
                 end
             end
         end
@@ -630,7 +631,7 @@ local function _kfk_broker_send_loop(kfk_broker)
             if util.debug then
                 ngxlog(DEBUG, "[kafka] [", kfk_broker.name, "] no message pending");
             end
-            ngx.sleep(cf.queue_buffering_max_ms / 1000);
+            ngxsleep(cf.queue_buffering_max_ms / 1000);
         end
 	end
 	
@@ -671,7 +672,7 @@ local function _kfk_broker_main_loop(kfk_broker)
 					
 			recv_co = ngxspawn(_kfk_broker_recv_loop, kfk_broker);
 			_kfk_broker_send_loop(kfk_broker);
-    		ngx.thread.wait(recv_co);
+    		ngxwait(recv_co);
 		end
 	end
 
