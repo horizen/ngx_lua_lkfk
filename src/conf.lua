@@ -2,6 +2,9 @@ local crc32 = ngx.crc32_short
 local localtime = ngx.localtime
 
 local function default_partitioner(key, part_cnt)
+    if part_cnt == 1 then
+        return 0;
+    end
 	return crc32(key) % part_cnt;
 end
 
