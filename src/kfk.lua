@@ -186,7 +186,7 @@ local function _new(cf)
 	end
 	kfk.main_co = co;
 	
-	return setmetatable(kfk, {__inde = _M});
+	return setmetatable(kfk, {__index = _M});
 end
 
 
