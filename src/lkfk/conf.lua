@@ -17,16 +17,17 @@ local default_conf = {
 	-- msg send failed callback，this is use for backup
 	failed_cb = kfk_failed_handle,
 	-- backup path for failed msg
-	backpath = "/usr/home/yaowei2/work/nginx/backup/",
+	backpath = ngx.config.prefix() .. "/backup/",
 	
 	-- client id
 	client_id = "lkfk",
 	
 	-- metadata broker list, recommend at least two node
-	metadata_broker_list = {"algo089.sf.sad.sh.sinanode.com:9996","algo090.sf.sad.sh.sinanode.com:9997"},
+	metadata_broker_list = {"host1:port1", "host2:port2"},
 
 	-- topic for kafka
-	topics = {"VIEW", "CLICK", "DSP_IMPRESS", "SINA_IMPRESS", "NETWORK_IMPRESS", "TEST"},
+	topics = {"topic1", "topic2"},
+
 	request_required_acks = 1,
 	-- timeout for kafka
 	request_timeout_ms	= 5000,
