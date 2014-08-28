@@ -1,6 +1,5 @@
-local util = require "util";
 local uuid = require "uuid";
-
+local util = require "lkfk.util";
 local list = require "lkfk.list";
 local const = require "lkfk.const";
 local func = require "lkfk.func";
@@ -22,11 +21,11 @@ local function kfk_message_partitioner(kfk_topic, kfk_msg)
         for i = 0, cnt - 1 do
             kfk_toppar = func.kfk_toppar_get(kfk_topic, 
                                              (partition + i) % cnt);
-            if kfk_toppar.leader ~= nil then
+            if kfk_toppar.leader then
                 break;
             end
         end
-        if kfk_toppar.leader == nil then
+        if not kfk_toppar.leader then
             kfk_toppar = toppar_ua;
         end
     end
@@ -39,11 +38,8 @@ local function kfk_message_partitioner(kfk_topic, kfk_msg)
 
 end
 
-local function kfk_new_msg(kfk, level, topic_name, key, str)
+local function kfk_new_msg(kfk, topic_name, key, str)
     local cf = kfk.cf;
-    if level > cf.level then
-        return true;
-    end
     
     if kfk.msg_cnt + 1 > cf.queue_buffering_max_messages then
         return false, "nobufs";
@@ -52,7 +48,6 @@ local function kfk_new_msg(kfk, level, topic_name, key, str)
     local kfk_msg = {
         kfk_msg_link  = list.LIST_ENTRY(),
         
-        level = level,
         topic = topic_name,
         key = key or uuid.unparse(uuid.generate("random")),
         str = str

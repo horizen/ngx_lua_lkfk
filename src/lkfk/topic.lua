@@ -1,30 +1,31 @@
-local util = require "util";
-
+local util = require "lkfk.util";
+local alarm = require "lkfk.alarm";
 local list = require "lkfk.list";
 local msg = require "lkfk.msg";
 local const = require "lkfk.const";
 local func = require "lkfk.func";
+local broker = require "lkfk.broker";
 
 local ipairs = ipairs;
 local ngxlog = ngx.log;
-local DEBUG = ngx.DEBUG
-local ERR = ngx.ERR
-
+local DEBUG = ngx.DEBUG;
+local ERR = ngx.ERR;
+local CRIT = ngx.CRIT;
 
 local function _kfk_new_toppar(kfk_topic, partition)
 	local cf = kfk_topic.kfk.cf;
 	
-	local toppar = {
+	local kfk_toppar = {
 		kfk_broker_toppar_link = list.LIST_ENTRY(),
 		kfk_topic = kfk_topic,
-		leader = nil,
+		leader = false,
 		partition = partition,
 		msgq = list.new("kfk_msg_link"),
 		fail_retry = 0,
 		last_send_time = 0
 	}
 	
-	return toppar;
+	return kfk_toppar;
 end
 
 local function _kfk_destroy_toppar(kfk_toppar, err)
@@ -78,10 +79,8 @@ local function _kfk_topic_partition_cnt_update(kfk_topic, part_cnt)
 		return 0;
 	end
 	
-	for i = 1, part_cnt do
-		if i > kfk_topic.toppar_cnt then
-			kfk_topic.kfk_toppars[i] = _kfk_new_toppar(kfk_topic, i - 1);
-		end
+	for i = kfk_topic.toppar_cnt + 1, part_cnt do
+		kfk_topic.kfk_toppars[i] = _kfk_new_toppar(kfk_topic, i - 1);
 	end
 	
 	local toppar_ua = func.kfk_toppar_get(kfk_topic, const.KFK_PARTITION_UA);
@@ -102,8 +101,7 @@ local function _kfk_topic_partition_cnt_update(kfk_topic, part_cnt)
 	return 1;
 end
 
-
-local function kfk_toppar_broker_delegate(kfk_toppar, kfk_broker)
+local function _kfk_toppar_broker_delegate(kfk_toppar, kfk_broker)
 	if kfk_toppar.leader == kfk_broker then
 		return;
 	end
@@ -113,59 +111,55 @@ local function kfk_toppar_broker_delegate(kfk_toppar, kfk_broker)
 		local old = kfk_toppar.leader;
 		old.kfk_toppars:remove(kfk_toppar);
 
-        ngxlog(ngx.WARN, "topic[", kfk_topic.name, ":", kfk_toppar.partition, 
-                "] remove from ", kfk_toppar.leader.nodeid);
-		kfk_toppar.leader = nil;
+		kfk_toppar.leader = false;
 	end
 	
 	if kfk_broker then
 		kfk_broker.kfk_toppars:insert_tail(kfk_toppar);
 		kfk_toppar.leader = kfk_broker;
 
-    	ngxlog(ngx.WARN, "topic[", kfk_topic.name, ":", kfk_toppar.partition, 
-    		    "] move to broker ", kfk_broker.nodeid);
-	else
-		ngxlog(ngx.WARN, "topic[", kfk_topic.name, ":", kfk_toppar.partition, 
-                "] lose leader");
+    	ngxlog(DEBUG, "[kafka] [", kfk_topic.name, ":", kfk_toppar.partition, 
+    		    	  "] move to broker ", kfk_broker.nodeid);
 	end
 end
 
 local function _kfk_topic_leader_update(kfk, kfk_topic, part_id, kb)
 	local kfk_toppar = func.kfk_toppar_get(kfk_topic, part_id);
 	if not kfk_toppar then
-		ngxlog(ERR, "topic[", kfk_topic.name, "] no partition: ", part_id);
+		ngxlog(ERR, "[kafka] [", kfk_topic.name, "] no partition: ", part_id);
 		return 0;	
 	end	
-	
+
 	if not kb then
-
-		kfk_toppar_broker_delegate(kfk_toppar, nil);
-		if kfk_toppar.fail_retry < 3 then
-			kfk_toppar.fail_retry = kfk_toppar.fail_retry + 1;
-            -- start a metadata query 
-            kfk.meta_query_topic[#kfk.meta_query_topic + 1] = kfk_topic;
-		else
-			-- broker may be down, we need get a notice
-            local toppar_ua = func.kfk_toppar_get(kfk_topic, const.KFK_PARTITION_UA);
-
-            if kfk.cf.kfk_status then
-                func.kfk_status_add(kfk_topic.name .. kfk_toppar.partition, -kfk_toppar.msgq.size)
-                func.kfk_status_add(kfk_topic.name .. toppar_ua.partition, kfk_toppar.msgq.size)
-            end
-
-		    list.concat(toppar_ua.msgq, kfk_toppar.msgq);
+        if kfk_toppar.leader then
             --[[
-			_kfk_destroy_toppar(kfk_toppar, const.KFK_RSP_ERR_BROKER_DOWN);
+            alarm.add(kfk_topic.name .. ":" .. kfk_toppar.partition .. 
+                      " lose leader" .. kfk_toppar.leader.nodeid);
             --]]
-            ngx.log(ngx.CRIT, "topic[", kfk_topic.name, ":", kfk_toppar.partition,
-                    "] lose leader");
-		end
-		return kfk_toppar.leader and 1 or 0;
+        end
+        _kfk_toppar_broker_delegate(kfk_toppar, nil);
+
+        local toppar_ua = func.kfk_toppar_get(kfk_topic, const.KFK_PARTITION_UA);
+
+        if kfk.cf.kfk_status then
+            func.kfk_status_add(kfk_topic.name .. kfk_toppar.partition, -kfk_toppar.msgq.size)
+            func.kfk_status_add(kfk_topic.name .. toppar_ua.partition, kfk_toppar.msgq.size)
+        end
+
+        list.concat(toppar_ua.msgq, kfk_toppar.msgq);
+
+		ngxlog(CRIT, "[kafka] [", kfk_topic.name, ":", kfk_toppar.partition, 
+                	 "] lose leader");
+        return kfk_toppar.leader and 1 or 0;
+    else
+        if not kfk_toppar.leader then
+            --[[
+            alarm.add(kfk_topic.name .. ":" .. kfk_toppar.partition .. " leader " .. kb.nodeid);
+            --]]
+        end
 	end
 	
-	kfk_toppar.fail_retry = 0;
-	
-	kfk_toppar_broker_delegate(kfk_toppar, kb);
+    _kfk_toppar_broker_delegate(kfk_toppar, kb);
 	return 1;
 end
 
@@ -173,17 +167,39 @@ local function kfk_topic_assign_ua(kfk_topic)
 	local kfk = kfk_topic.kfk;
 	local toppar_ua = func.kfk_toppar_get(kfk_topic, const.KFK_PARTITION_UA);
 	if not toppar_ua then
-		ngxlog(ERR, "topic[", kfk_topic.name, "] no unassigned partition");
-		return 0;
+		ngxlog(ERR, "[kafka] [", kfk_topic.name, "] no unassigned partition");
+		return;
 	end
-	
+    
+    local found = false;
+    for _, kfk_toppar in ipairs(kfk_topic.kfk_toppars) do
+        if kfk_toppar.leader then
+            found = true;
+            break;
+        end
+    end
+
+    if not found then
+        local msgq = toppar_ua.msgq;
+        if util.debug then
+            ngxlog(DEBUG, "[kafka] [", kfk_topic.name, "] have ", msgq.size, " ua messages");
+        end
+        ngxlog(CRIT, "[kafka] [", kfk_topic.name, "] all partitoin lose leader");
+
+        if kfk.cf.kfk_status then
+            func.kfk_status_add(kfk_topic.name .. toppar_ua.partition, -msgq.size)
+        end
+        func.kfk_destroy_msgq(kfk, msgq, const.KFK_RSP_ERR_LEADER_NOT_AVAILABLE);
+        --[[
+        alarm.add(kfk_topic.name .. "all partition lose leader ");
+        --]]
+        return;
+    end
+
     local tmpq = list.new("kfk_msg_link");
     list.concat(tmpq, toppar_ua.msgq);
 
     if tmpq.size > 0 then 
-        if util.debug then
-            ngxlog(DEBUG, "topic[", kfk_topic.name, "] have ", tmpq.size, " ua messages")
-        end
 
         if kfk.cf.kfk_status then
             func.kfk_status_add(kfk_topic.name .. toppar_ua.partition, -tmpq.size)
@@ -196,23 +212,9 @@ local function kfk_topic_assign_ua(kfk_topic)
             msg.kfk_message_partitioner(kfk_topic, kfk_msg);
             kfk_msg = head[tmpq.key].next;
         end
-        return 1;
     end
-    return 0;
 end
 
-local function _kfk_topic_metadata_failed(kfk, kfk_topic, err)
-    -- when kfk broker enable create topic option when topic unexist, then the err is happened
-	if err == const.KFK_RSP_ERR_LEADER_NOT_AVAILABLE then
-		kfk_topic.state = const.KFK_TOPIC_INIT;
-
-        -- start a metadata query 
-        kfk.meta_query_topic[#kfk.meta_query_topic + 1] = kfk_topic;
-    else
-		kfk_topic.state = const.KFK_TOPIC_UNKNOWN;
-		kfk_destroy_topic(kfk_topic, const.KFK_RSP_ERR_UNKNOWN_TOPIC_OR_PART);
-	end
-end
 
 local function kfk_topic_metadata_update(kfk, tm)
 	local kfk_topic = func.kfk_topic_find(kfk, tm.name);
@@ -222,21 +224,23 @@ local function kfk_topic_metadata_update(kfk, tm)
 	end
 	
 	if tm.err ~= const.KFK_RSP_NOERR then
-		ngxlog(ERR, "topic[", kfk_topic.name, "] metadata reply: ", 
-                    const.errstr[tm.err] or tm.err);
-		_kfk_topic_metadata_failed(kfk, kfk_topic, tm.err);
+		ngxlog(ERR, "[kafka] [", kfk_topic.name, "] metadata error: ", 
+                     const.errstr[tm.err]);
+                     
+		kfk_topic.state = const.KFK_TOPIC_UNKNOWN;
+		kfk_destroy_topic(kfk_topic, tm.err);
 		return;
 	end
     
     if util.debug then
-	    ngxlog(DEBUG, "update topic: ", tm.name);
+	    ngxlog(DEBUG, "[kafka] update topic: ", tm.name);
     end
 
 	kfk_topic.state = const.KFK_TOPIC_EXIST;
 	
 	for i = 1, tm.part_cnt do
 		if tm.part_meta[i].leader ~= -1 then
-			tm.part_meta[i].kb = func.kfk_broker_find_byid(kfk, tm.part_meta[i].leader);
+			tm.part_meta[i].kb = broker.kfk_broker_find_byid(kfk, tm.part_meta[i].leader);
 		end
 	end
 	
@@ -254,21 +258,9 @@ local function kfk_topic_metadata_update(kfk, tm)
 		kfk_topic_assign_ua(kfk_topic);
 	end
 
-    
-    --[[
-    ngxlog(DEBUG, "topic[", kfk_topic.name, 
-            "] have ", kfk_topic.toppar_cnt, " partitions");
-    for _, kfk_toppar in ipairs(kfk_topic.kfk_toppars) do
-        ngxlog(DEBUG, "topic[", kfk_topic.name, ":", kfk_toppar.partition, 
-			"] have ", kfk_toppar.msgq.size, " messages");
-        ngxlog(DEBUG, "topic[", kfk_topic.name, ":", kfk_toppar.partition, 
-			"] have leader: ", kfk_toppar.leader and kfk_toppar.leader.name);
-    end
-    --]]
 end
 
 local topic = {
-    kfk_toppar_broker_delegate = kfk_toppar_broker_delegate,
     kfk_topic_assign_ua = kfk_topic_assign_ua,
     kfk_topic_metadata_update = kfk_topic_metadata_update,
     kfk_new_topic = kfk_new_topic,

@@ -1,10 +1,11 @@
-local util = require "util";
 local bit = require "bit";
 
 local strbyte = string.byte;
 local strchar = string.char;
 local strsub = string.sub;
 local strlen = string.len;
+local strfind = string.find;
+local strgfind = string.gfind;
 
 local band = bit.band
 local bxor = bit.bxor
@@ -13,7 +14,43 @@ local lshift = bit.lshift
 local rshift = bit.rshift
 local tohex = bit.tohex
 
-local _M = util.new_tab(0, 19);
+local ok, new_tab = pcall(require, "table.new");
+if not ok then
+    new_tab = function(narr, nrec) return {} end
+end
+
+local _M = new_tab(0, 19);
+
+_M.new_tab = new_tab
+
+_M.debug = true
+
+function _M.split(str, delim, max_nb)   
+    -- Eliminate bad cases...
+    if delim == nil then delim = "," end
+
+    if strfind(str, delim, 1, true) == nil then  
+        return { str };
+    end  
+    if max_nb == nil or max_nb < 1 then  
+        max_nb = 0    -- no limit   
+    end  
+    local result = {}  
+    local pat = "(.-)" .. delim .. "()"   
+    local nb = 0  
+    local last_pos   
+    for part, pos in strgfind(str, pat) do  
+        nb = nb + 1  
+        result[nb] = part   
+        last_pos = pos   
+        if nb == max_nb then break end  
+    end  
+    -- Handle the last field   
+    if nb ~= max_nb then  
+        result[nb + 1] = strsub(str, last_pos)   
+    end  
+    return result
+end
 
 function _M.get_byte2(data, i)
     local a, b = strbyte(data, i, i + 1)

@@ -1,4 +1,4 @@
-local util = require "util";
+local util = require "lkfk.util";
 local setmetatable = setmetatable;
 
 local _M = util.new_tab(0, 15);
