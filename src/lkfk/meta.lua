@@ -7,9 +7,13 @@ local func = require "lkfk.func";
 local tonumber = tonumber;
 local concat = table.concat;
 local ipairs = ipairs;
-local ngxlog = ngx.log;
 local strlen = string.len
+local random = math.random;
+
+local sleep = ngx.sleep;
+local ngxlog = ngx.log;
 local ERR = ngx.ERR;
+local WARN = ngx.WARN;
 local DEBUG = ngx.DEBUG;
 
 local function _kfk_metadata_handle(kfk, data)
@@ -118,6 +122,9 @@ local _kfk_req = {
 	util.pack_kfk_string("lkfk"),			-- 5 client id
 	""	        							-- 6 msg body
 }
+
+local _meta_req = ""
+
 local function _gen_req(topics)
 	local buf = {
 		0,		-- 1 topic count
@@ -130,54 +137,73 @@ local function _gen_req(topics)
 	
 	_kfk_req[6] = concat(buf);
 	_kfk_req[1] = util.set_byte4(8 + strlen(_kfk_req[5]) + strlen(_kfk_req[6]));
+
+    _meta_req = concat(_kfk_req);
 end
 
+math.randomseed(ngx.now());
 
 local function kfk_metadata_req(kfk)
+    if not kfk.meta_lock then
+        return;
+    end
+
 	local metadata_broker_list = kfk.cf.metadata_broker_list;
+    local cnt = #metadata_broker_list;
+    local level = ERR;
+    local tries = 1;
 
-    local n = #kfk.meta_pending_topic;
+    if util.debug then
+        ngxlog(DEBUG, "[kafka] start a metadata query");
+    end
+    
+	while tries <= 3 do
+        local i = random(1, cnt);
 
-	while n > 0 do
-        if util.debug then
-            ngxlog(DEBUG, "[kafka] start a metadata query");
-        end
-
-		_gen_req(kfk.meta_pending_topic);
-
-		for _, meta_broker in ipairs(metadata_broker_list) do
-			local body, err = _send_req(kfk, concat(_kfk_req), meta_broker);
+		for j = 1, cnt do
+            local k = (i + j) % cnt + 1;
+            local meta_broker = metadata_broker_list[k];
+			local body, err = _send_req(kfk, _meta_req, meta_broker);
 			if body then
+                kfk.meta_lock = false;
 				_kfk_metadata_handle(kfk, body);
-				break;
+			    return;
 			end
-			ngxlog(ERR, "[kafka] [", meta_broker, "]: metadata query error: ", err);
+
+            if err == "timeout" then
+                level = WARN;
+            end
+
+			ngxlog(level, "[kafka] [", meta_broker, "]: metadata query error: ", err);
 		end
 
-		local m = #kfk.meta_pending_topic;
-		if m > n then
-			local tmp = util.new_tab(m - n, 0);
-			for i = n + 1, m do
-				tmp[#tmp + 1] = kfk.meta_pending_topic[i];
-			end
-			kfk.meta_pending_topic = tmp;
-		end
-		n = m - n;
+        sleep(tries);
+        tries = tries + 1;
 	end
 
-	kfk.meta_pending_topic = {};
+    kfk.meta_lock = false;
 end
 
 local function kfk_metadata_pretest(kfk)
+	local level;
 	_gen_req(kfk.cf.topics);
-	
+
 	for _, meta_broker in ipairs(kfk.cf.metadata_broker_list) do
-		local body, err = _send_req(kfk, concat(_kfk_req), meta_broker);
+		local body, err = _send_req(kfk, _meta_req, meta_broker);
 		if body then
 			return body;
 		end
-		ngxlog(ERR, "[kafka] [", meta_broker, "]: metadata query error: ", err);
+
+        if err == "timeout" then
+            level = WARN;
+        else
+            level = ERR;
+        end
+
+		ngxlog(level, "[kafka] [", meta_broker, "]: pretest error: ", err);
 	end
+
+    return nil;
 end
 
 local meta = {
