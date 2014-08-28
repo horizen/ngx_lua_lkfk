@@ -23,6 +23,7 @@ local corunning = coroutine.running
 local ERR = ngx.ERR
 local WARN = ngx.WARN
 local CRIT = ngx.CRIT
+local INFO = ngx.INFO
 local DEBUG = ngx.DEBUG
 
 local strlen = string.len
@@ -145,7 +146,9 @@ local function _kfk_broker_set_state(kfk_broker, state)
             --[[
             alarm.add("All kafka broker down");
             --]]
-			ngxlog(CRIT, "[kafka] all broker down");
+            if not kfk.quit() then
+			    ngxlog(CRIT, "[kafka] all broker down");
+            end
 		end
 	elseif kfk_broker.state == const.KFK_BROKER_DOWN then
 		kfk.down_cnt = kfk.down_cnt - 1;
@@ -209,7 +212,7 @@ local function _kfk_broker_produce_reply(kfk_broker, err, rspbuf, reqbuf)
 		err = _kfk_broker_produce_handle(kfk_broker, rspbuf, 9);
         if err == 0 and util.debug then
             ngxlog(DEBUG, "[kafka] [", kfk_broker.name, "] ", 
-                           reqbuf.msgq.size, "messages produce success");
+                           reqbuf.msgq.size, " messages produce success");
         end
 	end
 
@@ -224,11 +227,10 @@ local function _kfk_broker_produce_reply(kfk_broker, err, rspbuf, reqbuf)
 	local cf = kfk.cf;
 	local kfk_toppar = reqbuf.data;
 	if err ~= 0 then
-		ngxlog(ERR, "[kafka] [", kfk_broker.name, "] with ", reqbuf.msgq.size, 
+		ngxlog(WARN, "[kafka] [", kfk_broker.name, "] with ", reqbuf.msgq.size, 
                 	"messages encountered error: ", const.errstr[err]);
 				
-		if err == const.KFK_RSP_ERR_REQUEST_TIMED_OUT or
-		   err == const.KFK_RSP_ERR_MESSAGE_TIMED_OUT then
+		if err == const.KFK_RSP_ERR_REQUEST_TIMED_OUT then
 
 			if (reqbuf.tries + 1 <= cf.message_send_max_retries) then
 				_kfk_broker_buf_retry(kfk_broker, reqbuf);
@@ -247,7 +249,7 @@ local function _kfk_broker_produce_reply(kfk_broker, err, rspbuf, reqbuf)
 			list.concat_head(kfk_toppar.msgq, reqbuf.msgq);
 			   	
 			--start a metadata query
-			func.add_query_topic(kfk_toppar.kfk_topic);	
+            func.add_meta_query(kfk);
 			return;					   
 		elseif err == const.KFK_RSP_ERR_SOCKET or
 			   err == const.KFK_BROKER_NOT_VALID or
@@ -262,10 +264,11 @@ local function _kfk_broker_produce_reply(kfk_broker, err, rspbuf, reqbuf)
             return;
 		else
 			--[[
+		    err == const.KFK_RSP_ERR_MESSAGE_TIMED_OUT
 			err == const.KFK_RSP_ERR_UNKNOWN or
 			err == const.KFK_RSP_ERR_INVALID_MSG
-			err == const.KFK_RSP_ERR_INVALID_MSG_SIZE or
-			err == const.KFK_RSP_ERR_MSG_SIZE_TOO_LARGE then
+			err == const.KFK_RSP_ERR_INVALID_MSG_SIZE
+			err == const.KFK_RSP_ERR_MSG_SIZE_TOO_LARGE
             err == const.KFK_RSP_ERR_BAD_MSG
 			--]]
             
@@ -275,50 +278,69 @@ local function _kfk_broker_produce_reply(kfk_broker, err, rspbuf, reqbuf)
 	_kfk_destroy_buf(kfk_broker.kfk, reqbuf, err);
 end
 
-local function kfk_broker_produce_fail(kfk_broker, err, detail)
-	ngxlog(ERR, "[kafka] [", kfk_broker.name, "] produce failed: ", const.errstr[err], ":", detail);
-	
+local function kfk_broker_produce_fail(kfk_broker, err, ...)
+    if err ~= 0 then
+	    ngxlog(ERR, "[kafka] [", kfk_broker.name, "] produce failed: ", const.errstr[err], ":", ...);
+	end
+
     local kfk = kfk_broker.kfk;
 	_kfk_broker_set_state(kfk_broker, const.KFK_BROKER_DOWN);
 	
 	local tcp = kfk_broker.tcp;
 	tcp:close();
- 
-	local tmpq = list.new("kfk_buf_link");
-    if kfk.cf.kfk_status then
-        func.kfk_status_set("waitbuf", 0);
-    end
     
-    if kfk_broker.waitbuf.size > 0 then
-    	list.concat(tmpq, kfk_broker.waitbuf);
-    end
-    if kfk_broker.outbuf.size > 0 then
-	    list.concat(tmpq, kfk_broker.outbuf);
-	end
+    local retrybuf = kfk_broker.retrybuf;
+    local outbuf = kfk_broker.outbuf;
+    local waitbuf = kfk_broker.waitbuf;
 
-	local head = tmpq.head;
-	local kfk_buf = head[tmpq.key].next;
+    if waitbuf.size > 0 and kfk.cf.kfk_status then
+        local head = waitbuf.head;
+        local kfk_buf = head[waitbuf.key].next;
+        while kfk_buf ~= head do
+            func.kfk_status_add("waitbuf", -kfk_buf.msgq.size);
+            kfk_buf = waitbuf:next(kfk_buf);
+        end
+    end
+
+    local tmpbuf = list.new("kfk_buf_link");
+    if waitbuf.size > 0 then
+        list.concat(tmpbuf, waitbuf);
+    end
+    if outbuf.size > 0 then
+        list.concat(tmpbuf, outbuf);
+    end
+    if retrybuf.size > 0 then
+        list.concat(tmpbuf, retrybuf);
+    end
+
+	local head = tmpbuf.head;
+	local kfk_buf = head[tmpbuf.key].next;
 	while kfk_buf ~= head do
-		kfk_buf.callback(kfk_broker, err, nil, kfk_buf);
-		kfk_buf = tmpq:next(kfk_buf);
+        kfk_buf.callback(kfk_broker, err, nil, kfk_buf);
+		kfk_buf = tmpbuf:next(kfk_buf);
 	end
     
     if err ~= const.KFK_RSP_ERR_DESTROY and err ~= const.KFK_BROKER_NOT_VALID then
 		--start a metadata query
-		func.add_query_topic(kfk.kfk_topics);	
-	else
-        ngxlog(WARN, "[kafka] [", kfk_broker.name, "] remove from kfk cluster");
-        kfk.kfk_brokers:remove(kfk_broker);
-        kfk.down_cnt = kfk.down_cnt - 1;
+        func.add_meta_query(kfk);
+        return;
+    end
 
-        if err == const.KFK_BROKER_NOT_VALID then
-            for i = 1, #kfk.cos do
-                if corunning() == kfk.cos[i] then
-                    tabrm(kfk.cos, i);
-                end
-            end
+    ngxlog(WARN, "[kafka] [", kfk_broker.name, "] remove from kfk cluster");
+
+    kfk.kfk_brokers:remove(kfk_broker);
+    kfk.down_cnt = kfk.down_cnt - 1;
+
+    if err == const.KFK_RSP_ERR_DESTROY then
+        return;
+    end
+
+    for i = 1, #kfk.cos do
+        if corunning() == kfk.cos[i] then
+            tabrm(kfk.cos, i);
         end
-	end
+    end
+
 end
 
 local function _kfk_broker_waitrsp_find(kfk_broker, key)
@@ -368,13 +390,14 @@ end
 local function _kfk_broker_recv(kfk_broker)
 	local recvbuf = kfk_broker.recvbuf;
     local tcp = kfk_broker.tcp;
-    
-	while true do
+    local kfk = kfk_broker.kfk;
+
+	while not kfk.quit() do
 		if recvbuf.size == 0 then 
 	        local size = 20 - recvbuf.of;
 	        local n, err = _kfk_recv(tcp, recvbuf, size);
 	        if not n then
-			    kfk_broker_produce_fail(kfk_broker, const.KFK_RSP_ERR_SOCKET, err);
+			    kfk_broker_produce_fail(kfk_broker, const.KFK_RSP_ERR_SOCKET, "recv ", err);
 				break;
 	        end
 	
@@ -390,7 +413,7 @@ local function _kfk_broker_recv(kfk_broker)
 		if size > 0 then
 	        local n, err = _kfk_recv(tcp, recvbuf, size);
 	        if not n then
-			    kfk_broker_produce_fail(kfk_broker, const.KFK_RSP_ERR_SOCKET, err);
+			    kfk_broker_produce_fail(kfk_broker, const.KFK_RSP_ERR_SOCKET, "recv ", err);
 			    break;
 	        end
 	    	if n ~= size then
@@ -404,9 +427,16 @@ local function _kfk_broker_recv(kfk_broker)
 		if not kfk_buf then
 			ngxlog(ERR, "[kafka] [", kfk_broker.name, 
 	                    "] out of time response because of unknown corrid: ", corr_id);
+            --destroy recvbuf 
+            if recvbuf then
+                recvbuf.body = "";
+                recvbuf.of = 0;
+                recvbuf.size = 0;
+            end
+        else
+            kfk_buf.callback(kfk_broker, 0, recvbuf, kfk_buf);
 		end
 	        
-		kfk_buf.callback(kfk_broker, 0, recvbuf, kfk_buf);
 	end
 end
 
@@ -470,7 +500,7 @@ local function _kfk_broker_send(kfk_broker)
         local kfk_req = kfk_buf.kfk_req;
 		local bytes, err = tcp:send(kfk_req);
 		if not bytes then
-			kfk_broker_produce_fail(kfk_broker, const.KFK_RSP_ERR_SOCKET, err);
+			kfk_broker_produce_fail(kfk_broker, const.KFK_RSP_ERR_SOCKET, "send ", err);
 			return;
 		end
 
@@ -641,7 +671,7 @@ end
 local function _kfk_broker_main_loop(kfk_broker)
 	local kfk = kfk_broker.kfk;
 	local recv_co;
-	local err = const.KFK_RSP_ERR_DESTROY;
+	local err = 0;
     local flag = false;
 	while not kfk.quit() do
 		if kfk_broker.update_time ~= kfk.update_time then
@@ -663,7 +693,7 @@ local function _kfk_broker_main_loop(kfk_broker)
             -- if is not the first time connected
             if kfk_broker.update_time > 0 then
                 --start metadata query
-                func.add_query_topic(kfk.kfk_topics);
+                func.add_meta_query(kfk);
             end
 		end
 
@@ -690,6 +720,10 @@ local function _kfk_broker_main_loop(kfk_broker)
 		    else 
 		    	break;
 		    end
+        end
+
+        if coroutine.status(kfk.main_co) == "suspended" then
+            coroutine.resume(kfk.main_co);
         end
     end
 
