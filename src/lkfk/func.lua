@@ -67,7 +67,7 @@ local function kfk_destroy_msgq(kfk, msgq, err)
             kfk_status_add("succ_msg_cnt", msgq.size);
         end
     else
-        ngxlog(ERR, msgq.size, "[kafka] backup message with error:", const.errstr[err]);
+        ngxlog(ERR, "[kafka] backup ", msgq.size, " message with error:", const.errstr[err]);
 
         if cf.kfk_status then
             kfk_status_add("fail_msg_cnt", msgq.size);
@@ -91,39 +91,16 @@ local function kfk_destroy_msgq(kfk, msgq, err)
     list.init(msgq);
 end
 
-local function add_query_topic(kfk_topic)
-	local tmp
-	if #kfk_topic > 0 then
-		tmp = kfk_topic;
-	else
-		tmp = {kfk_topic};
-	end
+local function add_meta_query(kfk)
+    if not kfk.meta_lock then
+        kfk.meta_lock = true;
+    end
 
-	local kfk = tmp[1].kfk;
-    local meta_pending_topic = kfk.meta_pending_topic;
-
-	for _, kfk_topic in ipairs(tmp) do
-		local flag = false;
-		for _, topic in ipairs(meta_pending_topic) do
-			if topic == kfk_topic.name then
-				flag = true;
-				break;
-			end
-		end
-		
-		if not flag then
-			kfk.meta_pending_topic[#kfk.meta_pending_topic + 1] = kfk_topic.name;
-		end
-	end
-	
-	if not kfk.main_co or corunning() == kfk.main_co then
-		return;
-	end
-	
-	if costatus(kfk.main_co) == "suspended" then
-		coresume(kfk.main_co);
-	end
+    if costatus(kfk.main_co) == "suspended" then
+        coresume(kfk.main_co);
+    end
 end
+
 local func = {
     kfk_destroy_msgq = kfk_destroy_msgq,
 
@@ -133,7 +110,7 @@ local func = {
 	kfk_toppar_get = kfk_toppar_get,
 	kfk_topic_find = kfk_topic_find,
 
-    add_query_topic = add_query_topic
+    add_meta_query = add_meta_query
 }
 
 return func
