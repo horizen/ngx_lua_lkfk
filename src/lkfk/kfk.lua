@@ -70,11 +70,15 @@ local function _loop(kfk)
     local meta_flush = kfk.cf.metadata_refresh_interval_ms / 1000;
     local self = corunning();
 
+    kfk.main_co = self;
+
 	while not kfk.quit() do
 
         if kfk.meta_refresh_timeout <= ngxnow() then
             kfk.meta_refresh_timeout = ngxnow() + meta_flush;
-			func.add_query_topic(kfk.kfk_topics);
+            if not kfk.meta_lock then
+                kfk.meta_lock = true;
+            end
         end
 
 		meta.kfk_metadata_req(kfk);
@@ -82,15 +86,16 @@ local function _loop(kfk)
         for _, kfk_topic in ipairs(kfk.kfk_topics) do
             topic.kfk_topic_assign_ua(kfk_topic);
         end
+
         --[[ 
         local ok, err = alarm.send(kfk.tcp);
         if not ok then
             ngx.log(ngx.ERR, err);
         end
         --]]
-        
-        --TODO
-        --[[
+
+        -- TODO resend failure message
+        --[[ 
         for _, kfk_topic in ipairs(kfk.kfk_topics) do
             local boffset = ngx.shared.kfk:get(kfk_topic.name .. "boff");
             local eoffset = ngx.shared.kfk:get(kfk_topic.name .. "eoff");
@@ -103,25 +108,28 @@ local function _loop(kfk)
                 
             end
         end
-            resend failure message
         --]]
+
         local s = ngxnow();
         coyield(self);
         local t = ngxnow();
         if t - s < 2 then
             ngxsleep(2);
         end
+
 	end
 	
 	for _, co in ipairs(kfk.cos) do 
 		ngxwait(co);
 	end
+
     --[[
     local ok, err = alarm.send(kfk.tcp);
     if not ok then
         ngx.log(ngx.ERR, err);
     end
     --]]
+
     _kfk_destroy_kfk(kfk);
 end
 
@@ -150,7 +158,7 @@ local function _new(cf)
 		kfk_brokers = list.new("kfk_broker_link"),
 		down_cnt = 0,
         
-        meta_pending_topic = util.new_tab(4, 0),
+        meta_lock = false,
 		meta_refresh_timeout = ngxnow(),
 		
         main_co = false,
@@ -173,8 +181,8 @@ local function _new(cf)
 		topic.kfk_new_topic(kfk, name);
 	end
 	
-	local body = meta.kfk_metadata_pretest(kfk);
-	if not body then
+	local succ = meta.kfk_metadata_pretest(kfk);
+	if not succ then
         _kfk_destroy_kfk(kfk, true);
 		return nil, "broker is invalid: please check the config of metadata_broker_list";
 	end
