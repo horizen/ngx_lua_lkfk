@@ -23,10 +23,10 @@ local default_conf = {
 	client_id = "lkfk",
 	
 	-- metadata broker list, recommend at least two node
-	metadata_broker_list = {"host1:port1", "host2:port2"},
+	metadata_broker_list = {"host1:port1,host2:port2"},
 
 	-- topic for kafka
-	topics = {"topic1", "topic2"},
+	topics = {},
 
 	request_required_acks = 1,
 	-- timeout for kafka
@@ -43,7 +43,7 @@ local default_conf = {
 	metadata_refresh_interval_ms = 60000,
 	queue_buffering_max_ms	= 2000,
 	queue_buffering_max_messages = 50000,
-	batch_num_messages = 1000,
+	batch_num_messages = 500,
 	
     conn_retry_limit = 3,
     -- connect retry 

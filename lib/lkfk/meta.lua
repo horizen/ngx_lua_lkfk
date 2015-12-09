@@ -70,6 +70,7 @@ local function _kfk_metadata_handle(kfk, data)
 	end
     
     kfk.update_time = kfk.update_time + 1;
+
 	for _, node in ipairs(brokers) do
 		broker.kfk_broker_update(kfk, node);
 	end
@@ -77,7 +78,6 @@ local function _kfk_metadata_handle(kfk, data)
 	for _, tm in ipairs(topic_metas) do
 		topic.kfk_topic_metadata_update(kfk, tm);
 	end
-
 end
 
 

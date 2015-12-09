@@ -1,4 +1,3 @@
-local global = require "global";
 local util = require "lkfk.util";
 local alarm = require "lkfk.alarm";
 local conf = require "lkfk.conf";
@@ -197,6 +196,7 @@ local function _new(cf)
 	return setmetatable(kfk, {__index = _M});
 end
 
+local kfk
 
 local function _kafka_startup(premature)
     if premature then
@@ -204,11 +204,10 @@ local function _kafka_startup(premature)
     end
 
     local err;
-    local kfk, err = _new();
+    kfk, err = _new();
     if not kfk then
         error("kafka start failure: " .. err);
     end
-    global.kfk = kfk;
 end
 
 
@@ -219,13 +218,15 @@ function _M.init()
     end
 end
 
-function _M.log(self, topic, key, str)
-	local ok, err = msg.kfk_new_msg(self, topic, key, str);
+function _M.log(topic, key, str)
+	local ok, err = msg.kfk_new_msg(kfk, topic, key, str);
     if not ok then
-        if self.cf.kfk_status then
+        if kfk.cf.kfk_status then
             func.kfk_status_add("fail_msg_cnt", 1);
         end
-        self.cf.failed_cb(self, {topic = topic, key = key, str = str});
+
+        ngxlog(ngx.ERR, "log msg failure:" ,err);
+        kfk.cf.failed_cb(kfk, {topic = topic, key = key, str = str});
     end
 end
 

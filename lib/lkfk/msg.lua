@@ -1,4 +1,4 @@
-local uuid = require "uuid";
+local uuid = require "lkfk.uuid";
 local util = require "lkfk.util";
 local list = require "lkfk.list";
 local const = require "lkfk.const";
@@ -57,9 +57,10 @@ local function kfk_new_msg(kfk, topic_name, key, str)
     if not kfk_topic then
         return false, "topic unknown";
     end
-    
+   
     local err = kfk_message_partitioner(kfk_topic, kfk_msg);
     if not err then
+
         kfk.msg_cnt = kfk.msg_cnt + 1;
 
         if cf.kfk_status then

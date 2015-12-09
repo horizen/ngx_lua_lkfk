@@ -653,6 +653,7 @@ local function _kfk_broker_send_loop(kfk_broker)
 		  kfk_broker.state == const.KFK_BROKER_UP and
 		  kfk_broker.update_time == kfk.update_time do
 
+          ngxlog(DEBUG, "send loop");
         _kfk_broker_enq_msgs(cf, kfk_broker);
 		_kfk_broker_retry_buf_move(kfk_broker);
         if kfk_broker.outbuf.size > 0 then
@@ -678,22 +679,26 @@ local function _kfk_broker_main_loop(kfk_broker)
 			err = const.KFK_BROKER_NOT_VALID;
 			break;
 		end
-		
+	
+        ngxlog(DEBUG, kfk_broker.state);
+
 		if kfk_broker.state ~= const.KFK_BROKER_UP then
 			local ok, err = _kfk_broker_connect(kfk_broker);
 			if not ok then
+                ngxlog(ngx.ERR, "[kafka] [connect ", kfk_broker.name, "] failed:", err);
                 for i = 1, kfk.cf.conn_retry_timeout, 2 do
                     ngxsleep(2);
                 end
-			end
-            if util.debug then
-                ngxlog(DEBUG, "[kafka] [", kfk_broker.name, "] connected ");
-            end
+            else
+                if util.debug then
+                    ngxlog(DEBUG, "[kafka] [", kfk_broker.name, "] connected ");
+                end
 
-            -- if is not the first time connected
-            if kfk_broker.update_time > 0 then
-                --start metadata query
-                func.add_meta_query(kfk);
+                -- if is not the first time connected
+                if kfk_broker.update_time > 0 then
+                    --start metadata query
+                    func.add_meta_query(kfk);
+                end
             end
 		end
 
